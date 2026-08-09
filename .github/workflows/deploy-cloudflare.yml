@@ -19,6 +19,7 @@ jobs:
       DOMAIN: ${{ secrets.DOMAIN || vars.DOMAIN }}
       ADMIN: ${{ secrets.ADMIN || vars.ADMIN }}
       JWT_SECRET: ${{ secrets.JWT_SECRET || vars.JWT_SECRET }}
+      RESEND_WEBHOOK_SECRET: ${{ secrets.RESEND_WEBHOOK_SECRET || vars.RESEND_WEBHOOK_SECRET }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || vars.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID || vars.D1_DATABASE_ID }}
@@ -97,6 +98,16 @@ jobs:
             echo "::warning:: CUSTOM_DOMAIN variable is not set."
           fi
           
+          if [ -n "$RESEND_WEBHOOK_SECRET" ]; then
+            if grep -q '[|&]' <<< "$RESEND_WEBHOOK_SECRET"; then
+              echo "❌ RESEND_WEBHOOK_SECRET contains invalid characters (|, &)."
+              exit 1
+            fi
+            if ! grep -q '^whsec_' <<< "$RESEND_WEBHOOK_SECRET"; then
+              echo "::warning:: RESEND_WEBHOOK_SECRET does not start with 'whsec_'. Copy the value from the Resend webhook page verbatim, otherwise every webhook will be rejected with 401."
+            fi
+          fi
+          
           CONFIG_FILE="wrangler-action.toml"
           
           if [ -z "$R2_BUCKET_NAME" ]; then
@@ -105,6 +116,11 @@ jobs:
           
           if [ -z "$PROJECT_LINK" ]; then
             sed -i '/^project_link = /d' "$CONFIG_FILE"
+          fi
+          
+          if [ -z "$RESEND_WEBHOOK_SECRET" ]; then
+            sed -i '/^resend_webhook_secret = /d' "$CONFIG_FILE"
+            echo "::warning:: RESEND_WEBHOOK_SECRET is not set, Resend webhook signature verification will be skipped."
           fi
           
           if [ -z "$LINUXDO_CLIENT_ID" ] || [ -z "$LINUXDO_CLIENT_SECRET" ]; then
@@ -128,6 +144,7 @@ jobs:
           sed -i "s|\"\${DOMAIN}\"|${DOMAIN}|g" "$CONFIG_FILE"
           sed -i "s|\${ADMIN}|${ADMIN}|g" "$CONFIG_FILE"
           sed -i "s|\${JWT_SECRET}|${JWT_SECRET}|g" "$CONFIG_FILE"
+          sed -i "s|\${RESEND_WEBHOOK_SECRET}|${RESEND_WEBHOOK_SECRET}|g" "$CONFIG_FILE"
           sed -i "s|\${R2_BUCKET_NAME}|${R2_BUCKET_NAME}|g" "$CONFIG_FILE"
           sed -i "s|\${PROJECT_LINK}|${PROJECT_LINK}|g" "$CONFIG_FILE"
           sed -i "s|\${ANALYSIS_CACHE}|${ANALYSIS_CACHE}|g" "$CONFIG_FILE"
@@ -224,6 +241,7 @@ jobs:
             | tee deploy.log \
             | grep -v "https://.*\.workers\.dev" \
             | sed -E 's/env\.domain .*/env.domain (***)/' \
+            | sed -E 's/env\.resend_webhook_secret .*/env.resend_webhook_secret (***)/' \
             || true
           
           DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
