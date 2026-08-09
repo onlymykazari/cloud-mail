@@ -1,47 +1,53 @@
 import emailService from './email-service';
 import { emailConst } from '../const/entity-const';
-import BizError from '../error/biz-error';
+
+const eventStatusMap = {
+	'email.sent': emailConst.status.SENT,
+	'email.delivered': emailConst.status.DELIVERED,
+	'email.complained': emailConst.status.COMPLAINED,
+	'email.bounced': emailConst.status.BOUNCED,
+	'email.delivery_delayed': emailConst.status.DELAYED,
+	'email.failed': emailConst.status.FAILED
+};
 
 const resendService = {
 
 	async webhooks(c, body) {
 
+		const type = body?.type;
+		const status = eventStatusMap[type];
+
+		if (status === undefined) {
+			console.log(`resend webhook ignored, unsupported type: ${type}`);
+			return;
+		}
+
+		const resendEmailId = body?.data?.email_id;
+
+		if (!resendEmailId) {
+			console.log(`resend webhook ignored, missing email_id, type: ${type}`);
+			return;
+		}
+
 		const params = {
-			resendEmailId: body.data.email_id,
-			status: emailConst.status.SENT
+			resendEmailId,
+			status,
+			message: null
 		}
 
-		if (body.type === 'email.delivered') {
-			params.status = emailConst.status.DELIVERED
-			params.message = null
+		if (type === 'email.bounced') {
+			const bounce = body?.data?.bounce;
+			params.message = bounce ? JSON.stringify(bounce) : null;
 		}
 
-		if (body.type === 'email.complained') {
-			params.status = emailConst.status.COMPLAINED
-			params.message = null
-		}
-
-		if (body.type === 'email.bounced') {
-			let bounce = body.data.bounce
-			bounce = JSON.stringify(bounce);
-			params.status = emailConst.status.BOUNCED
-			params.message = bounce
-		}
-
-		if (body.type === 'email.delivery_delayed') {
-			params.status = emailConst.status.DELAYED
-			params.message = null
-		}
-
-		if (body.type === 'email.failed') {
-			params.status = emailConst.status.FAILED
-			params.message = body.data.failed.reason
+		if (type === 'email.failed') {
+			params.message = body?.data?.failed?.reason ?? null;
 		}
 
 		const emailRow = await emailService.updateEmailStatus(c, params)
 
 		if (!emailRow) {
-			throw new BizError('更新邮件状态记录失败');
+			console.log(`resend webhook ignored, email not found, type: ${type}, email_id: ${resendEmailId}`);
 		}
 
 	}
